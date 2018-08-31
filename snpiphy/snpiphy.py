@@ -98,7 +98,7 @@ class SnpiPhy:
 					if float(line_data[3]) < self.cutoff:
 						archive = "{}.alignment.tar.gz".format(line_data[0])
 						reads_file = snpiphy.find_source_file(line_data[0], self.reads_dir)
-						moved_reads_file = find_source_file(line_data[0], self.excluded_seqs)
+						moved_reads_file = snpiphy.find_source_file(line_data[0], self.excluded_seqs)
 						moved_archive = os.path.join(self.excluded_seqs, "{}.tar.gz".format(line_data[0]))
 						self.logger.info("Sample {} coverage is too low ({}%), removing from core alignment. Reads and reference mapping data will be retained in archive: {}".format(line_data[0],line_data[3],archive))
 						exclude_log.write("Sample {} coverage is too low ({}%), removing from core alignment. Reads and reference mapping data will be retained in archive: {}\n".format(line_data[0],line_data[3],archive))
