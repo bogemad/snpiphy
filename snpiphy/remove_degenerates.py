@@ -82,7 +82,7 @@ def clean_sequence(results_list, sequence):
 	degenerate_locations = []
 	for i in sorted(keys):
 		degenerate_locations += result_dict[i]
-	logger.info("Total %d degenerate bases removed from sequence" % len(degenerate_locations))
+	logger.info("Total %d degenerate bases removed from reference" % len(degenerate_locations))
 	mutable_seq = sequence.seq.tomutable()
 	for location in degenerate_locations:
 		mutable_seq[location] = "N"
@@ -93,9 +93,9 @@ def clean_sequence(results_list, sequence):
 
 def write_new_sequence_file(cleaned_sequences, annotations_present, outfile):
 	if annotations_present == True:
-		logger.info("Writing sequence to %s" % outfile)
+		logger.info("Writing reference to %s" % outfile)
 		null = SeqIO.write(cleaned_sequences, outfile, "gb")
 	elif annotations_present == False:
-		logger.info("Writing sequence to %s" % outfile)
+		logger.info("Writing reference to %s" % outfile)
 		null = SeqIO.write(cleaned_sequences, outfile, "fasta")
 

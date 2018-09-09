@@ -2,7 +2,7 @@
 
 import sys, argparse, distutils, os, logging
 from distutils.spawn import find_executable
-from snpiphy import configure_outdir, SnpiPhy
+from snpiphy import configure_outdir, SnpiPhy, bad_options_check
 
 # Import arguments
 parser = argparse.ArgumentParser(description="snpiphy - An automated snp phylogeny pipeline.")
@@ -13,8 +13,10 @@ required.add_argument("-q", "--fastq-dir", required=True, help="Path to a direct
 required.add_argument("-o", "--output-directory", required=True, help="Path to the output directory. A directory will be created if one does not exist.", action="store", dest="outdir")
 required.add_argument("-r", "--reference", required=True, help="Path to the reference sequence. Only fasta format is accepted currently.", action="store", dest="reference")
 optional.add_argument("-c", "--cov-cutoff", help="Percent coverage of reference sequence (0-100%%) used to reject a sample. Samples lower than this threshold will be excluded from phylogenetic pipeline steps. Defaults to 85%%.", action="store", dest="cutoff", type=int, default=85)
-optional.add_argument('-p', '--prefix', help='Prefix for output files', action='store', dest='prefix', default='')
+optional.add_argument('-p', '--prefix', help='Prefix for output files', action='store', dest='prefix', default='snpiphy_run')
 optional.add_argument("-t", "--threads", help="Number of threads to use for multiprocessing.", action="store", dest="threads", type=int, default=1)
+optional.add_argument("-j", "--parallel", help="Use GNU parallel to run multiple instances of snippy (can speed things up if you have multiple cores available)", action='store_true', default=False)
+optional.add_argument("-m", "--gamma_model", help="Use GTRGAMMA model instead of GTRCAT during the gubbins and RAxML tree building steps.", action='store_true', default=False)
 optional.add_argument("-f", "--force", help="Overwrite files in the output directories.", action='store_true', default=False)
 optional.add_argument('--version', action='version', version='%(prog)s 0.1')
 optional.add_argument('-v', '--verbose', help="Increase verbosity on command line output (n.b. verbose output is always saved to snpiphy.log in the output directory).", action='store_true', default=False)
@@ -51,6 +53,9 @@ logger.info("Checking dependencies...\n")
 if not find_executable("bwa"):
 	logger.error("bwa not found. Please install the bwa read aligner.")
 	sys.exit(1)
+if not find_executable("parallel"):
+	logger.error("parallel not found. Please install GNU parallel.")
+	sys.exit(1)
 if not find_executable("samtools"):
 	logger.error("samtools not found. Please install samtools.")
 	sys.exit(1)
@@ -62,9 +67,6 @@ if not find_executable("FastTree"):
 	sys.exit(1)
 if not find_executable("raxmlHPC-PTHREADS"):
 	logger.error("raxml not found. Please install the raxml phylogenetics pipeline.")
-	sys.exit(1)
-if not find_executable("fastq-dump"):
-	logger.error("sra-tools not found. Please install the sra-tools suite.")
 	sys.exit(1)
 if not find_executable("snippy"):
 	logger.error("snippy not found. Please install snippy.")
@@ -80,18 +82,24 @@ logger.info("Reads directory = {}".format(args.reads_dir))
 logger.info("output-directory = {}".format(args.outdir))
 logger.info("threads = {}".format(args.threads))
 logger.info("coverage cutoff = {}".format(args.cutoff))
-logger.info("Force overwrite of previous output: {}".format(args.force))
-logger.info("prefix = {}\n".format(args.prefix))
+logger.info("force overwrite of previous output: {}".format(args.force))
+logger.info("prefix = {}".format(args.prefix))
+logger.info("use parallel for multiprocessing = {}".format(args.parallel))
+logger.info("raxml model = {}\n".format('GTRGAMMA' if args.gamma_model else 'GTRCAT'))
 
-job = SnpiPhy(args.threads, args.cutoff, args.reads_dir, args.outdir, args.reference, args.prefix)
+job = SnpiPhy(args.threads, args.cutoff, os.path.abspath(args.reads_dir), os.path.abspath(args.outdir), os.path.abspath(args.reference), args.prefix, args.gamma_model)
 job.remove_results_without_reads()
 logger.info("Processing {} samples:\n".format(len(job.sample_names)))
 logger.debug("Samples to process:\n\n{}\n".format('\n'.join(job.sample_names)))
 logger.debug("Samples that need reference alignment:\n\n{}\n".format('\n'.join(job.snippy_not_done)))
 logger.info("STEP 1: Aligning sequences to reference genome...\n")
 if len(job.snippy_not_done) != 0:
-	for read_path in job.snippy_not_done:
-		job.run_snippy(read_path)
+	if args.parallel == True:
+		commands = job.gen_snippy_parallel_lists()
+		job.run_parallel_snippy(commands)
+	else:
+		for read_path in job.snippy_not_done:
+			job.run_snippy(read_path)
 logger.info("STEP 2: Generating raw core genome alignment...\n")
 job.run_snippy_core()
 logger.info("STEP 3: Filtering Ns from genome alignment...\n")

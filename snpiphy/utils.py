@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import re
 import os
 import gzip
 import subprocess
@@ -97,4 +98,9 @@ def find_source_file(name, reads_dir):
 		if searchObj:
 			return os.path.join(reads_dir, file)
 
-
+def bad_options_check(bad_args, raw_given_args):
+	given_args = raw_given_args.split()
+	for bad_arg in bad_args:
+		if bad_arg in given_args:
+			return bad_arg
+	return False
