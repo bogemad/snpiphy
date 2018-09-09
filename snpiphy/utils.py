@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import re
 import os
 import gzip
 import subprocess
@@ -90,98 +91,16 @@ def cd(newdir):
 		os.chdir(prevdir)
 
 
+def find_source_file(name, reads_dir):
+	reads_files = os.listdir(reads_dir)
+	for file in reads_files:
+		searchObj = re.search(name,file)
+		if searchObj:
+			return os.path.join(reads_dir, file)
 
-# def chunks(l, n):
-	# """Yield successive n-sized chunks from l."""
-	# for i in range(0, len(l), n):
-		# yield l[:, i:i + n]
-
-
-# def id_read_format(file):
-	# if os.path.splitext(file)[1] == ".gz":
-		# handle = gzip.open(file,'rt')
-	# else:
-		# handle = open(file)
-	# for line in handle:
-		# if line.strip() == "":
-			# continue
-		# if line.strip().startswith('@'):
-			# return "fastq"
-		# elif line.strip().startswith(">"):
-			# return "fasta"
-		# else:
-			# print("Can't properly determine read format for file {}. Please check your read files are in fastq for raw sequencing reads) or fasta (for assembled genomes) format".format(os.path.basename(file)))
-			# sys.exit(1)
-
-
-# def find_source_file(name, reads_dir):
-	# reads_files = os.listdir(reads_dir)
-	# for file in reads_files:
-		# searchObj = re.search(name,file)
-		# if searchObj:
-			# return os.path.join(reads_dir, file)
-
-
-
-
-
-
-
-# def multijob(input):
-	# query_id, subject_id, query, subject = input
-	# snps = int(np.count_nonzero(query != subject))
-	# print("{} SNPs found between isolates {} and {}".format(snps, query_id, subject_id))
-	# return (query_id, subject_id, snps)
-
-
-# def multirun(input_list, threads):
-	# p = multiprocessing.Pool(threads)
-	# result = p.map_async(multijob,input_list,chunksize=1)
-	# prev_jobs_remaining = len(input_list)
-	# while not result.ready():
-		# jobs_remaining = result._number_left
-		# if jobs_remaining != prev_jobs_remaining:
-			# print("{} of {} sequence pairs remaining to be compaired".format(result._number_left, len(input_list)))
-		# prev_jobs_remaining = jobs_remaining
-	# results_list = result.get(999999999999999)
-	# p.close()
-	# p.join()
-	# return results_list
-
-# def gen_input_list(array, id_list):
-	# input_list = []
-	# for i, query in enumerate(array):
-		# for j, subject in enumerate(array):
-			# input_list.append((id_list[i], id_list[j], query, subject))
-	# return input_list
-
-
-
-# def generate_data_frame(snp_count_d,id_list):
-	# df = pd.DataFrame(data=np.zeros((0,len(id_list))), columns=id_list)
-	# for query_id in sorted(id_list):
-		# print("Adding %s results to dataframe" % query_id)
-		# df_1 = pd.DataFrame(snp_count_d[query_id], index=[query_id])
-		# df = df.append(df_1)
-	# return df
-
-
-# def validate_multi_import(array, array2):
-	# for i in range(len(array)):
-		# if multijob((i ,i, array[i], array2[i]))[2] != 0:
-			# print("Check multiprocessing array input is working")
-			# sys.exit(1)
-	# print("Multiprocessing array input is working fine")
-
-
-# def import_array(aln, threads):
-	# chunk_list = gen_chunks(aln, threads)
-	# array_chunk_list = multi_import(chunk_list, threads)
-	# return reassemble_array(array_chunk_list)
-
-
-
-
-
-
-
+def bad_options_check(bad_args, raw_given_args):
+	given_args = raw_given_args.split()
+	for bad_arg in bad_args:
+		if bad_arg in given_args:
+			return bad_arg
+	return False

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from Bio import Phylo
 
 class SnpiPhy:
-	def __init__(self, threads, cutoff, reads_dir, outdir, reference, prefix):
+	def __init__(self, threads, cutoff, reads_dir, outdir, reference, prefix, model):
 		self.logger = logging.getLogger(__name__)
 		self.outdir = os.path.abspath(outdir)
 		self.reads_dir = os.path.abspath(reads_dir)
@@ -15,7 +15,7 @@ class SnpiPhy:
 		self.temp_dir = os.path.join(outdir, '.temp')
 		self.ref_aligns = snpiphy.define_make_outdirs(os.path.join(self.outdir, "reference_alignments"))
 		self.sample_names = [ snpiphy.get_samplename(path) for path in os.listdir(self.reads_dir) if os.path.isfile(os.path.join(self.reads_dir, path)) ]
-		self.snippy_not_done = [ os.path.join(self.reads_dir, path) for path in os.listdir(self.reads_dir) if (snpiphy.get_samplename(path) in os.listdir(self.ref_aligns)) == False ]
+		self.snippy_not_done = [ os.path.join(self.reads_dir, path) for path in os.listdir(self.reads_dir) if (snpiphy.get_samplename(path) in os.listdir(self.ref_aligns)) == False]
 		self.core_align = snpiphy.define_make_outdirs(os.path.join(self.outdir, "core_genome_alignment"))
 		self.excluded_seqs = snpiphy.define_make_outdirs(os.path.join(self.outdir, "excluded_sequences_and_alignments"))
 		self.recomb_filter = snpiphy.define_make_outdirs(os.path.join(self.outdir, "recombination_filtration"))
@@ -28,6 +28,7 @@ class SnpiPhy:
 		self.final_unrooted_tree = os.path.join(self.outdir, '.'.join((prefix,"final_tree_with_bootstrap.nex")))
 		self.core_snp_stats = os.path.join(self.outdir, '.'.join((prefix,"recombination_filtered_core.snp_counts.stats")))
 		self.core_snp_matrix = os.path.join(self.outdir, '.'.join((prefix,"recombination_filtered_core.snp_counts.tsv")))
+		self.model = model
 	
 	def remove_results_without_reads(self):
 		self.logger.debug("Removing results from previous runs that have been removed from reads directory...\n")
@@ -43,6 +44,30 @@ class SnpiPhy:
 				else:
 					self.logger.warn("Results directory {} has no associated reads file and has been moved to {}.".format(x, self.excluded_seqs))
 					shutil.move(abspath, self.excluded_seqs)
+	
+	def run_parallel_snippy(self, commands):
+		self.logger.info("Running snippy on reads with parallel and {} threads".format(self.threads))
+		if len(commands) > 0:
+			ec = snpiphy.run_command([
+									'parallel',
+									'-j', str(self.threads),
+									':::'] + commands
+									)
+			if ec != 0:
+				self.logger.error("Error running snippy on one of the reads files. Please check your files and error output.")
+				sys.exit(1)
+	
+	def gen_snippy_parallel_lists(self):
+		read_id_calls = { read_path: snpiphy.id_read_format(read_path) for read_path in self.snippy_not_done }
+		cmds = []
+		for read_path in self.snippy_not_done:
+			cmd = [ 'snippy','-cpus', '1','--prefix', snpiphy.get_samplename(read_path),'--outdir', os.path.join(self.ref_aligns, snpiphy.get_samplename(read_path)),'--ref', self.reference ]
+			if read_id_calls[read_path] == 'fastq':
+				cmd += ['--peil', read_path]
+			else:
+				cmd += ['--ctgs', read_path]
+			cmds.append(' '.join(cmd))
+		return cmds
 	
 	def run_snippy(self, read_path):
 		name = snpiphy.get_samplename(read_path)
@@ -81,7 +106,7 @@ class SnpiPhy:
 				self.logger.debug("Running snippy-core...")
 				ec = snpiphy.run_command((
 										[
-										"snippy-core"
+										"snippy-core", '--ref', self.reference
 										]+self.sample_names
 										))
 				if ec != 0:
@@ -92,21 +117,22 @@ class SnpiPhy:
 				exclude_log = open(os.path.join(self.excluded_seqs, "removed_sequences.log"), 'w')
 				bad_seqs = []
 				for line in core_data_handle:
-					if line.startswith("ID"):
-						continue
 					line_data = line.strip().split("\t")
-					if float(line_data[3]) < self.cutoff:
+					if line_data[0] == "ID" or line_data[0] == "Reference":
+						continue
+					coverage = 100 * float(line_data[2]) / float(line_data[1])
+					if coverage < self.cutoff:
 						archive = "{}.alignment.tar.gz".format(line_data[0])
-						reads_file = snpiphy.find_source_file(line_data[0], self.reads_dir)
-						moved_reads_file = find_source_file(line_data[0], self.excluded_seqs)
+						# reads_file = snpiphy.find_source_file(line_data[0], self.reads_dir)
+						# moved_reads_file = os.path.join(self.excluded_seqs, os.path.basename(reads_file))
 						moved_archive = os.path.join(self.excluded_seqs, "{}.tar.gz".format(line_data[0]))
-						self.logger.info("Sample {} coverage is too low ({}%), removing from core alignment. Reads and reference mapping data will be retained in archive: {}".format(line_data[0],line_data[3],archive))
-						exclude_log.write("Sample {} coverage is too low ({}%), removing from core alignment. Reads and reference mapping data will be retained in archive: {}\n".format(line_data[0],line_data[3],archive))
+						self.logger.info("Sample {} coverage is too low ({:.2f}%), removing from core alignment. Reads and reference mapping data will be retained in archive: {}".format(line_data[0],coverage,archive))
+						exclude_log.write("Sample {} coverage is too low ({:.2f}%), removing from core alignment. Reads and reference mapping data will be retained in archive: {}\n".format(line_data[0],coverage,archive))
 						exitcode = snpiphy.run_command(["tar", "cvzf", archive, line_data[0]])
 						if ec != 0:
 							self.logger.error("Error compressing excluded alignment for sample: {}. Please check your files and error output.".format(line_data[0]))
 							sys.exit(1)
-						os.rename(reads_file, moved_reads_file)
+						# os.rename(reads_file, moved_reads_file)
 						os.rename(archive, moved_archive)
 						shutil.rmtree(line_data[0])
 						bad_seqs.append(line_data[0])
@@ -121,7 +147,7 @@ class SnpiPhy:
 						os.remove(file)
 				self.logger.debug("Running snippy-core again...")
 				ec = snpiphy.run_command([
-										"snippy-core"
+										"snippy-core", '--ref', self.reference
 										]+[
 										x for x in self.sample_names if (x in bad_seqs) == False
 										])
@@ -149,13 +175,17 @@ class SnpiPhy:
 	
 	def filter_recombinant_positions(self):
 		if os.path.isfile(self.init_filtered_tree) == False:
+			if self.model == True:
+				options = ['-r', 'GTRGAMMA']
+			else:
+				options = []
 			with snpiphy.cd(self.recomb_filter):
 				self.logger.info("Scanning and filtering recombination positions with gubbins...")
 				ec = snpiphy.run_command([
 										"run_gubbins.py",
-										"-v",
-										'-i', '10',
-										'-p', os.path.join(self.recomb_filter, 'filtered_core_aln'),
+										"-v"] +
+										options +
+										[ '-p', os.path.join(self.recomb_filter, 'filtered_core_aln'),
 										'-c', str(self.threads),
 										os.path.join(self.core_align, 'core.full.trimmed.aln')
 										])
@@ -167,9 +197,10 @@ class SnpiPhy:
 					ec = snpiphy.run_command([
 											"run_gubbins.py",
 											"-v", 
-											'-i', '10', 
 											'--tree_builder', 'hybrid', 
-											'-p', os.path.join(self.recomb_filter, 'filtered_core_aln'), 
+											] +
+											options +
+											[ '-p', os.path.join(self.recomb_filter, 'filtered_core_aln'), 
 											'-c', str(self.threads), 
 											os.path.join(self.core_align, 'core.full.trimmed.aln')
 											])
@@ -181,9 +212,9 @@ class SnpiPhy:
 						ec = snpiphy.run_command([
 												"run_gubbins.py",
 												"-v", 
-												'-i', '10', 
 												'--tree_builder', 'fasttree', 
-												'-p', os.path.join(self.recomb_filter, 'filtered_core_aln'), 
+												] +
+												[ '-p', os.path.join(self.recomb_filter, 'filtered_core_aln'), 
 												'-c', str(self.threads), 
 												os.path.join(self.core_align, 'core.full.trimmed.aln')
 												])
@@ -211,15 +242,19 @@ class SnpiPhy:
 	
 	def gen_bootstrap_tree(self):
 		if os.path.isfile(self.bootstrap_tree) == False:
+			if self.model == True:
+				options = ['-m', 'GTRGAMMA']
+			else:
+				options = ['-V','-m', 'GTRCAT']
 			self.logger.info("Running bootstrap analysis...")
 			ec = snpiphy.run_command([
 									"raxmlHPC-PTHREADS",
-									"-T",str(self.threads),
-									"-m","GTRCAT",
-									"-V",
-									"-p",str(random.randint(10000,99999)),
+									"-T",str(self.threads) ] +
+									options +
+									[ "-p",str(random.randint(10000,99999)),
 									"-b",str(random.randint(10000,99999)),
-									"-#","100","-s",os.path.join(self.recomb_filter, "filtered_core_aln.filtered_polymorphic_sites.fasta"),
+									"-#","100",
+									"-s",os.path.join(self.recomb_filter, "filtered_core_aln.filtered_polymorphic_sites.fasta"),
 									"-n","filtered_core_aln.bootstrap",
 									'-w', self.phylogenetic_trees
 									])
@@ -232,13 +267,16 @@ class SnpiPhy:
 	
 	def gen_final_tree(self):
 		if os.path.isfile(self.final_unrooted_tree) == False:
+			if self.model == True:
+				options = ['-m', 'GTRGAMMA']
+			else:
+				options = ['-V','-m', 'GTRCAT']
 			self.logger.info("Generating final tree...")
 			ec = snpiphy.run_command([
 									"raxmlHPC-PTHREADS",
-									"-T", str(self.threads),
-									"-m", "GTRCAT",
-									"-V",
-									"-p", str(random.randint(10000,99999)),
+									"-T",str(self.threads) ] +
+									options +
+									[ "-p",str(random.randint(10000,99999)),
 									"-f", "b",
 									"-t", os.path.join(self.recomb_filter, "filtered_core_aln.final_tree.tre"),
 									"-z", os.path.join(self.phylogenetic_trees, "RAxML_bootstrap.filtered_core_aln.bootstrap"),
