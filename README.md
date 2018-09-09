@@ -37,7 +37,7 @@ python setup.py install
 
 ```
 usage: snpiphy [-h] -q READS_DIR -o OUTDIR -r REFERENCE [-c CUTOFF]
-               [-p PREFIX] [-t THREADS] [-f] [--version] [-v]
+               [-p PREFIX] [-t THREADS] [-j] [-m] [-f] [--version] [-v]
 
 snpiphy - An automated snp phylogeny pipeline.
 
@@ -63,6 +63,11 @@ optional arguments:
                         Prefix for output files
   -t THREADS, --threads THREADS
                         Number of threads to use for multiprocessing.
+  -j, --parallel        Use GNU parallel to run multiple instances of snippy
+                        (can speed things up if you have multiple cores
+                        available)
+  -m, --gamma_model     Use GTRGAMMA model instead of GTRCAT during the
+                        gubbins and RAxML tree building steps.
   -f, --force           Overwrite files in the output directories.
   --version             show program's version number and exit
   -v, --verbose         Increase verbosity on command line output (n.b.
