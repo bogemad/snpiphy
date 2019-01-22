@@ -40,6 +40,7 @@ usage: snpiphy [-h] -q READS_DIR -o OUTDIR -r REFERENCE [-c CUTOFF]
                [-p PREFIX] [-t THREADS] [-j] [-s] [-m] [-b {raxml,fasttree}]
                [-f] [--version] [-v]
 
+
 snpiphy - An automated snp phylogeny pipeline.
 
 required arguments:
