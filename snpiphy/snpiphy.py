@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from Bio import Phylo
 
 class SnpiPhy:
-	def __init__(self, threads, cutoff, reads_dir, outdir, reference, prefix, model):
+	def __init__(self, threads, cutoff, reads_dir, outdir, reference, prefix, model, tree_builder, single_end):
 		self.logger = logging.getLogger(__name__)
 		self.outdir = os.path.abspath(outdir)
 		self.reads_dir = os.path.abspath(reads_dir)
@@ -21,14 +21,16 @@ class SnpiPhy:
 		self.recomb_filter = snpiphy.define_make_outdirs(os.path.join(self.outdir, "recombination_filtration"))
 		self.phylogenetic_trees = snpiphy.define_make_outdirs(os.path.join(self.outdir, "intermediate_phylogenetic_trees"))
 		self.raw_core_aln = os.path.join(self.outdir, '.'.join((prefix,"raw_core.alignment.fasta")))
-		self.N_trimmed_core_aln = os.path.join(self.outdir, '.'.join((prefix,"N_trimmed_core.alignment.fasta")))
-		self.init_filtered_tree = os.path.join(self.outdir, '.'.join((prefix,"N_trimmed_core.tree.tre")))
+		self.N_trimmed_core_aln = os.path.join(self.outdir, '.'.join((prefix,"trimmed_unfiltered_core.alignment.fasta")))
+		self.init_filtered_tree = os.path.join(self.outdir, '.'.join((prefix,"trimmed_unfiltered_core.tree.tre")))
 		self.recomb_figure = os.path.join(self.outdir, '.'.join((prefix,"recombination_predictions.pdf")))
 		self.bootstrap_tree = os.path.join(self.outdir, '.'.join((prefix,"bootstap_trees.nex")))
-		self.final_unrooted_tree = os.path.join(self.outdir, '.'.join((prefix,"final_tree_with_bootstrap.nex")))
-		self.core_snp_stats = os.path.join(self.outdir, '.'.join((prefix,"recombination_filtered_core.snp_counts.stats")))
-		self.core_snp_matrix = os.path.join(self.outdir, '.'.join((prefix,"recombination_filtered_core.snp_counts.tsv")))
+		self.final_unrooted_tree = os.path.join(self.outdir, '.'.join((prefix,"final_rfiltered_tree_with_bootstrap.nex")))
+		self.core_snp_stats = os.path.join(self.outdir, '.'.join((prefix,"snp_counts.stats")))
+		self.core_snp_matrix = os.path.join(self.outdir, '.'.join((prefix,"snp_counts.tsv")))
 		self.model = model
+		self.tree_builder = tree_builder
+		self.single_end = single_end
 	
 	def remove_results_without_reads(self):
 		self.logger.debug("Removing results from previous runs that have been removed from reads directory...\n")
@@ -63,7 +65,10 @@ class SnpiPhy:
 		for read_path in self.snippy_not_done:
 			cmd = [ 'snippy','-cpus', '1','--prefix', snpiphy.get_samplename(read_path),'--outdir', os.path.join(self.ref_aligns, snpiphy.get_samplename(read_path)),'--ref', self.reference ]
 			if read_id_calls[read_path] == 'fastq':
-				cmd += ['--peil', read_path]
+				if self.single_end == True:
+					cmd += ['--se', read_path]
+				else:
+					cmd += ['--peil', read_path]
 			else:
 				cmd += ['--ctgs', read_path]
 			cmds.append(' '.join(cmd))
@@ -74,14 +79,17 @@ class SnpiPhy:
 		self.logger.info("{}: Running snippy...\n".format(name))
 		read_format = snpiphy.id_read_format(read_path)
 		if read_format == 'fastq':
+			if self.single_end == True:
+				add_cmd = ['--se', read_path]
+			else:
+				add_cmd = ['--peil', read_path]
 			ec = snpiphy.run_command([
 									'snippy',
 									'--cpus', str(self.threads),
 									'--prefix', name,
 									'--outdir', os.path.join(self.ref_aligns, name),
-									'--ref', self.reference,
-									'--peil', read_path
-									])
+									'--ref', self.reference ] +
+									add_cmd )
 			if ec != 0:
 				self.logger.error("Error running snippy on fastq reads file: {}. Please check your files and error output.".format(os.path.basename(read_path)))
 				sys.exit(1)
@@ -181,46 +189,60 @@ class SnpiPhy:
 				options = []
 			with snpiphy.cd(self.recomb_filter):
 				self.logger.info("Scanning and filtering recombination positions with gubbins...")
-				ec = snpiphy.run_command([
-										"run_gubbins.py",
-										"-v"] +
-										options +
-										[ '-p', os.path.join(self.recomb_filter, 'filtered_core_aln'),
-										'-c', str(self.threads),
-										os.path.join(self.core_align, 'core.full.trimmed.aln')
-										])
-				if ec != 0:
-					self.logger.warn("Recombination filtering using the RAxML only method has failed. Retrying with FastTree for first iteration.")
-					for file in os.listdir(self.recomb_filter):
-						if file.startswith('core.full.trimmed.aln.'):
-							os.remove(file)
+				if self.tree_builder == 'fasttree':
 					ec = snpiphy.run_command([
 											"run_gubbins.py",
 											"-v", 
-											'--tree_builder', 'hybrid', 
+											'--tree_builder', 'fasttree', 
 											] +
-											options +
 											[ '-p', os.path.join(self.recomb_filter, 'filtered_core_aln'), 
 											'-c', str(self.threads), 
 											os.path.join(self.core_align, 'core.full.trimmed.aln')
 											])
 					if ec != 0:
-						self.logger.warn("Recombination filtering using hybrid RAxML/FastTree method has failed. Retrying with FastTree for all iterations.")
+						self.logger.error("Running gubbins using fasttree method has failed. Please examine your alignment or consider removing highly divergent sequences. Additionally consider using a different reference sequence.")
+						sys.exit(1)
+				else:
+					ec = snpiphy.run_command([
+											"run_gubbins.py",
+											"-v"] +
+											options +
+											[ '-p', os.path.join(self.recomb_filter, 'filtered_core_aln'),
+											'-c', str(self.threads),
+											os.path.join(self.core_align, 'core.full.trimmed.aln')
+											])
+					if ec != 0:
+						self.logger.warn("Recombination filtering using the RAxML only method has failed. Retrying with FastTree for first iteration.")
 						for file in os.listdir(self.recomb_filter):
 							if file.startswith('core.full.trimmed.aln.'):
 								os.remove(file)
 						ec = snpiphy.run_command([
 												"run_gubbins.py",
 												"-v", 
-												'--tree_builder', 'fasttree', 
+												'--tree_builder', 'hybrid', 
 												] +
+												options +
 												[ '-p', os.path.join(self.recomb_filter, 'filtered_core_aln'), 
 												'-c', str(self.threads), 
 												os.path.join(self.core_align, 'core.full.trimmed.aln')
 												])
 						if ec != 0:
-							self.logger.error("Running gubbins using all methods have failed. Please examine your alignment or consider removing highly divergent sequences. Looking at total.snp_counts.stats is a good place to start. Additionally consider using a different reference sequence.")
-							sys.exit(1)
+							self.logger.warn("Recombination filtering using hybrid RAxML/FastTree method has failed. Retrying with FastTree for all iterations.")
+							for file in os.listdir(self.recomb_filter):
+								if file.startswith('core.full.trimmed.aln.'):
+									os.remove(file)
+							ec = snpiphy.run_command([
+													"run_gubbins.py",
+													"-v", 
+													'--tree_builder', 'fasttree', 
+													] +
+													[ '-p', os.path.join(self.recomb_filter, 'filtered_core_aln'), 
+													'-c', str(self.threads), 
+													os.path.join(self.core_align, 'core.full.trimmed.aln')
+													])
+							if ec != 0:
+								self.logger.error("Running gubbins using all methods have failed. Please examine your alignment or consider removing highly divergent sequences. Additionally consider using a different reference sequence.")
+								sys.exit(1)
 			Phylo.convert(os.path.join(self.recomb_filter, "filtered_core_aln.final_tree.tre"), 'newick', self.init_filtered_tree, 'nexus')
 			self.logger.info("Recombination filtering by gubbins has completed successfully.")
 		else:
