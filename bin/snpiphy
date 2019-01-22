@@ -20,7 +20,7 @@ optional.add_argument("-s", "--single_end", help="fastq reads are single end ins
 optional.add_argument("-m", "--gamma_model", help="Use GTRGAMMA model instead of GTRCAT during the gubbins and RAxML tree building steps.", action='store_true', default=False)
 optional.add_argument("-b", "--tree_builder", help="Algorithm used for building the phylogenetic tree (default: raxml)", action='store', choices=['raxml','fasttree'], default='raxml')
 optional.add_argument("-f", "--force", help="Overwrite files in the output directories.", action='store_true', default=False)
-optional.add_argument('--version', action='version', version='%(prog)s 0.1')
+optional.add_argument('--version', action='version', version='%(prog)s 0.3')
 optional.add_argument('-v', '--verbose', help="Increase verbosity on command line output (n.b. verbose output is always saved to snpiphy.log in the output directory).", action='store_true', default=False)
 
 parser._action_groups.append(optional)
