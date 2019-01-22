@@ -6,7 +6,7 @@ def read(fname):
 
 setup(
     name = "snpiphy",
-    version = "0.1",
+    version = "0.2",
     author = "Daniel Bogema",
     author_email = "daniel.bogema@dpi.nsw.gov.au",
     description = ("An automated snp phylogeny pipeline"),
