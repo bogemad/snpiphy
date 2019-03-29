@@ -1,21 +1,25 @@
 #!/usr/bin/env python
 
 import sys, os, re, shutil, subprocess, snpiphy, random, logging
+from collections import defaultdict
 from contextlib import contextmanager
 from Bio import Phylo
 
 class SnpiPhy:
-	def __init__(self, threads, cutoff, reads_dir, outdir, reference, prefix, model, tree_builder, single_end):
+	def __init__(self, threads, cutoff, reads_info, outdir, reference, prefix, model, tree_builder, single_end):
 		self.logger = logging.getLogger(__name__)
+		self.single_end = single_end
 		self.outdir = os.path.abspath(outdir)
-		self.reads_dir = os.path.abspath(reads_dir)
+		self.reads_lists = self.generate_reads_lists(reads_info)
+		# self.reads_dir = os.path.abspath(reads_dir)
 		self.reference = snpiphy.remove_degenerates(reference, os.path.join(outdir, ".".join([prefix, "reference"])), threads)
 		self.threads = threads
 		self.cutoff = cutoff
 		self.temp_dir = os.path.join(outdir, '.temp')
 		self.ref_aligns = snpiphy.define_make_outdirs(os.path.join(self.outdir, "reference_alignments"))
-		self.sample_names = [ snpiphy.get_samplename(path) for path in os.listdir(self.reads_dir) if os.path.isfile(os.path.join(self.reads_dir, path)) ]
-		self.snippy_not_done = [ os.path.join(self.reads_dir, path) for path in os.listdir(self.reads_dir) if (snpiphy.get_samplename(path) in os.listdir(self.ref_aligns)) == False]
+		self.all_reads_list = [ path for reads_list in self.reads_lists.values() for path in reads_list ]
+		self.sample_names = [ snpiphy.get_samplename(path) for path in self.all_reads_list ]
+		self.snippy_not_done = [ path for path in self.all_reads_list if (snpiphy.get_samplename(path) in os.listdir(self.ref_aligns)) == False]
 		self.core_align = snpiphy.define_make_outdirs(os.path.join(self.outdir, "core_genome_alignment"))
 		self.excluded_seqs = snpiphy.define_make_outdirs(os.path.join(self.outdir, "excluded_sequences_and_alignments"))
 		self.recomb_filter = snpiphy.define_make_outdirs(os.path.join(self.outdir, "recombination_filtration"))
@@ -30,14 +34,44 @@ class SnpiPhy:
 		self.core_snp_matrix = os.path.join(self.outdir, '.'.join((prefix,"snp_counts.tsv")))
 		self.model = model
 		self.tree_builder = tree_builder
-		self.single_end = single_end
+	
+	def generate_reads_lists(self, reads_info):
+		reads_lists = defaultdict(list)
+		if reads_info[1] == 'list':
+			with open(reads_info[0]) as reads_list:
+				for line in reads_list:
+					if line.startswith('#') or line.strip() == '':
+						continue
+					data = line.strip().split('\t')
+					if len(data) != 2:
+						error_for_log = "Line '{}' in input list is not valid. Please ensure each line that does not start with a # contains only the path to the sequence file and the sequence type (Paired, Single-end or Assembly) separated by a tab character.".format(line.strip())
+						self.logger.error(error_for_log)
+					reads_lists[data[1]].append(data[0])
+		elif reads_info[1] == 'dir':
+			if self.single_end == True:
+				reads_key = 'S'
+			else:
+				reads_key = 'P'
+			for reads_file in os.listdir(reads_info[0]):
+				reads_path = os.path.join(reads_info[0], reads_file)
+				if snpiphy.id_read_format(reads_path) == 'fastq':
+					reads_lists[reads_key].append(reads_path)
+				elif snpiphy.id_read_format(reads_path) == 'fasta':
+					reads_lists['A'].append(reads_path)
+				else:
+					logger.error("Can't properly determine read format for file {}. Please check your read files are in fastq for raw sequencing reads) or fasta (for assembled genomes) format".format(os.path.basename(file)))
+					sys.exit(1)
+		else:
+			logger.error("Unable to determine read input type. This is a software bug, please log an issue at https://github.com/bogemad/snpiphy/issues")
+		return reads_lists
 	
 	def remove_results_without_reads(self):
-		self.logger.debug("Removing results from previous runs that have been removed from reads directory...\n")
-		for x in os.listdir(self.outdir):
+		self.logger.debug("Removing results from previous runs that have been removed from reads directory/list...\n")
+		for x in os.listdir(self.ref_aligns):
 			abspath = os.path.join(self.ref_aligns, x)
 			if os.path.isdir(abspath) == True:
-				matches = len([y for y in os.listdir(self.reads_dir) if re.match(x, y)])
+				all_reads = [path for reads_list in self.reads_lists.values() for path in reads_list]
+				matches = len([y for y in all_reads if re.match(x, y)])
 				if matches == 1:
 					self.logger.debug("Results directory {} is present, continuing...")
 					continue
@@ -60,51 +94,51 @@ class SnpiPhy:
 				sys.exit(1)
 	
 	def gen_snippy_parallel_lists(self):
-		read_id_calls = { read_path: snpiphy.id_read_format(read_path) for read_path in self.snippy_not_done }
 		cmds = []
-		for read_path in self.snippy_not_done:
-			cmd = [ 'snippy','-cpus', '1','--prefix', snpiphy.get_samplename(read_path),'--outdir', os.path.join(self.ref_aligns, snpiphy.get_samplename(read_path)),'--ref', self.reference ]
-			if read_id_calls[read_path] == 'fastq':
-				if self.single_end == True:
-					cmd += ['--se', read_path]
-				else:
-					cmd += ['--peil', read_path]
-			else:
-				cmd += ['--ctgs', read_path]
-			cmds.append(' '.join(cmd))
+		for reads_type in self.reads_lists.keys():
+			for read_path in self.reads_lists[reads_type]:
+				if read_path in self.snippy_not_done:
+					cmd = [ 'snippy','-cpus', '1','--prefix', snpiphy.get_samplename(read_path),'--outdir', os.path.join(self.ref_aligns, snpiphy.get_samplename(read_path)),'--ref', self.reference ]
+					if reads_type == 'P':
+						cmd += ['--peil', read_path]
+					elif reads_type == 'S':
+						cmd += ['--se', read_path]
+					elif reads_type == 'A':
+						cmd += ['--ctgs', read_path]
+					else:
+						self.logger.error("Cannot determine type for sequence file: {}\tPlease check the pairing status in your input reads list provided and ensure it is either A, P or S")
+					cmds.append(' '.join(cmd))
 		return cmds
 	
-	def run_snippy(self, read_path):
+	def gen_snippy_run_list(self):
+		snippy_run_list = []
+		for reads_type in self.reads_lists.keys():
+			for path in self.reads_lists[reads_type]:
+				if path in self.snippy_not_done:
+					snippy_run_list.append((path, reads_type))
+		return snippy_run_list
+	
+	def run_snippy(self, read_path, reads_type):
 		name = snpiphy.get_samplename(read_path)
 		self.logger.info("{}: Running snippy...\n".format(name))
-		read_format = snpiphy.id_read_format(read_path)
-		if read_format == 'fastq':
-			if self.single_end == True:
-				add_cmd = ['--se', read_path]
-			else:
-				add_cmd = ['--peil', read_path]
-			ec = snpiphy.run_command([
-									'snippy',
-									'--cpus', str(self.threads),
-									'--prefix', name,
-									'--outdir', os.path.join(self.ref_aligns, name),
-									'--ref', self.reference ] +
-									add_cmd )
-			if ec != 0:
-				self.logger.error("Error running snippy on fastq reads file: {}. Please check your files and error output.".format(os.path.basename(read_path)))
-				sys.exit(1)
+		if reads_type == 'P':
+			add_cmd = ['--peil', read_path]
+		elif reads_type == 'S':
+			add_cmd = ['--se', read_path]
+		elif reads_type == 'A':
+			add_cmd = ['--ctgs', read_path]
 		else:
-			ec = snpiphy.run_command([
-									'snippy',
-									'--cpus', str(self.threads),
-									'--prefix', name,
-									'--outdir', os.path.join(self.ref_aligns, name),
-									'--ref', self.reference,
-									'--ctgs', read_path
-									])
-			if ec != 0:
-				self.logger.error("Error running snippy on fastq reads file: {}. Please check your files and error output.".format(os.path.basename(read_path)))
-				sys.exit(1)
+			self.logger.error("Cannot determine type for sequence file: {}\tPlease check the pairing status in your input reads list provided and ensure it is either A, P or S")
+		ec = snpiphy.run_command([
+								'snippy',
+								'--cpus', str(self.threads),
+								'--prefix', name,
+								'--outdir', os.path.join(self.ref_aligns, name),
+								'--ref', self.reference ] +
+								add_cmd )
+		if ec != 0:
+			self.logger.error("Error running snippy on sequence file: {}. Please check your files and error output.".format(os.path.basename(read_path)))
+			sys.exit(1)
 		self.logger.info("{}: snippy has completed successfully.\n".format(name))
 	
 	def run_snippy_core(self):
@@ -248,20 +282,6 @@ class SnpiPhy:
 		else:
 			self.logger.info("Recombination filtering by gubbins has already been done. Skipping this step...")
 	
-	def visualise_recombination_predictions(self):
-		if os.path.isfile(self.recomb_figure) == False:
-			self.logger.info("Building a recombination prediction figure...")
-			ec = snpiphy.run_command([
-									'gubbins_drawer.py',
-									'-o', self.recomb_figure,
-									os.path.join(self.recomb_filter, "filtered_core_aln.final_tree.tre"),
-									os.path.join(self.recomb_filter, "filtered_core_aln.recombination_predictions.embl")
-									])
-			if ec != 0:
-				self.logger.warn("Recombination visualisation failed. This isn't critical so continuing to tree building...")
-		else:
-			self.logger.info("Recombination prediction visualisation has already been generated. Skipping this step...")
-	
 	def gen_bootstrap_tree(self):
 		if os.path.isfile(self.bootstrap_tree) == False:
 			if self.model == True:
@@ -313,7 +333,7 @@ class SnpiPhy:
 			self.logger.info("Final RAxML tree has already been generated. Skipping this step...")
 	
 	def count_core_snps(self):
-		if os.path.isfile(os.path.join(self.outdir, "recombination_filtered_core.snp_counts.stats")) == False:
+		if os.path.isfile(self.core_snp_stats) == False:
 			self.logger.info("Calculating pairwise recombination-filtered_core SNPs...")
 			snpiphy.count_snps(os.path.join(self.recomb_filter, 'filtered_core_aln.filtered_polymorphic_sites.fasta'), self.core_snp_matrix, self.core_snp_stats, self.threads)
 		else:

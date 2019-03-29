@@ -8,11 +8,14 @@ from snpiphy import configure_outdir, SnpiPhy, bad_options_check
 parser = argparse.ArgumentParser(description="snpiphy - An automated snp phylogeny pipeline.")
 optional = parser._action_groups.pop()
 required = parser.add_argument_group('required arguments')
+required_input = parser.add_argument_group('input arguments - required, provide only one')
 
-required.add_argument("-q", "--fastq-dir", required=True, help="Path to a directory with your interleaved fastq sequencing reads or fasta assemblies.", action="store", dest="reads_dir")
+
 required.add_argument("-o", "--output-directory", required=True, help="Path to the output directory. A directory will be created if one does not exist.", action="store", dest="outdir")
 required.add_argument("-r", "--reference", required=True, help="Path to the reference sequence. Only fasta format is accepted currently.", action="store", dest="reference")
-optional.add_argument("-c", "--cov-cutoff", help="Percent coverage of reference sequence (0-100%%) used to reject a sample. Samples lower than this threshold will be excluded from phylogenetic pipeline steps. Defaults to 85%%.", action="store", dest="cutoff", type=int, default=85)
+required_input.add_argument("-q", "--input_dir", help="Path to a directory with your interleaved fastq sequencing reads, single-end sequencing reads (use with the -s option) or fasta assemblies.", action="store", dest="reads_dir", default=False)
+required_input.add_argument("-l", "--input_list", help="Path to a tab-separated file containing read paths and paired status. Best used when running a combination of single-end and paired-end data or if your data is spread across multiple directories. Run 'snpiphy_generate_input_list' to generate an example list.", action="store", dest="reads_list", default=False)
+optional.add_argument("-c", "--cov_cutoff", help="Percent coverage of reference sequence (0-100%%) used to reject a sample. Samples lower than this threshold will be excluded from phylogenetic pipeline steps. Defaults to 85%%.", action="store", dest="cutoff", type=int, default=85)
 optional.add_argument('-p', '--prefix', help='Prefix for output files', action='store', dest='prefix', default='snpiphy_run')
 optional.add_argument("-t", "--threads", help="Number of threads to use for multiprocessing.", action="store", dest="threads", type=int, default=1)
 optional.add_argument("-j", "--parallel", help="Use GNU parallel to run multiple instances of snippy (can speed things up if you have multiple cores available)", action='store_true', default=False)
@@ -20,12 +23,20 @@ optional.add_argument("-s", "--single_end", help="fastq reads are single end ins
 optional.add_argument("-m", "--gamma_model", help="Use GTRGAMMA model instead of GTRCAT during the gubbins and RAxML tree building steps.", action='store_true', default=False)
 optional.add_argument("-b", "--tree_builder", help="Algorithm used for building the phylogenetic tree (default: raxml)", action='store', choices=['raxml','fasttree'], default='raxml')
 optional.add_argument("-f", "--force", help="Overwrite files in the output directories.", action='store_true', default=False)
-optional.add_argument('--version', action='version', version='%(prog)s 0.3')
+optional.add_argument('--version', action='version', version='%(prog)s 0.4')
 optional.add_argument('-v', '--verbose', help="Increase verbosity on command line output (n.b. verbose output is always saved to snpiphy.log in the output directory).", action='store_true', default=False)
 
 parser._action_groups.append(optional)
 
 args = parser.parse_args()
+
+if args.reads_dir == False and args.reads_list == False:
+	print("Argument ERROR: No input arguments given. Please provide one input argument. Run snpiphy -h for details.")
+	sys.exit(1)
+elif args.reads_dir != False and args.reads_list != False:
+	print("Argument ERROR: Multiple input arguments given. Please provide one input argument. Run snpiphy -h for details.")
+	sys.exit(1)
+
 
 configure_outdir(os.path.abspath(args.outdir), args.force)
 
@@ -80,7 +91,12 @@ if not find_executable("run_gubbins.py"):
 logger.info("All dependencies found.\n")
 
 logger.info("Running snpiphy with the following options:")
-logger.info("Reads directory = {}".format(args.reads_dir))
+if args.reads_dir != False:
+	logger.info("Reads directory = {}".format(args.reads_dir))
+	reads = (os.path.abspath(args.reads_dir), 'dir')
+if args.reads_list != False:
+	logger.info("Reads list = {}".format(args.reads_list))
+	reads = (os.path.abspath(args.reads_list), 'list')
 logger.info("output-directory = {}".format(args.outdir))
 logger.info("threads = {}".format(args.threads))
 logger.info("coverage cutoff = {}".format(args.cutoff))
@@ -92,7 +108,7 @@ logger.info("tree builder = {}".format(args.tree_builder))
 logger.info("single end data = {}\n".format(args.single_end))
 
 
-job = SnpiPhy(args.threads, args.cutoff, os.path.abspath(args.reads_dir), os.path.abspath(args.outdir), os.path.abspath(args.reference), args.prefix, args.gamma_model, args.tree_builder, args.single_end)
+job = SnpiPhy(args.threads, args.cutoff, reads, os.path.abspath(args.outdir), os.path.abspath(args.reference), args.prefix, args.gamma_model, args.tree_builder, args.single_end)
 job.remove_results_without_reads()
 logger.info("Processing {} samples:\n".format(len(job.sample_names)))
 logger.debug("Samples to process:\n\n{}\n".format('\n'.join(job.sample_names)))
@@ -103,22 +119,21 @@ if len(job.snippy_not_done) != 0:
 		commands = job.gen_snippy_parallel_lists()
 		job.run_parallel_snippy(commands)
 	else:
-		for read_path in job.snippy_not_done:
-			job.run_snippy(read_path)
+		snippy_run_list = job.gen_snippy_run_list()
+		for read_path, read_type in snippy_run_list:
+			job.run_snippy(read_path, read_type)
 logger.info("STEP 2: Generating raw core genome alignment...\n")
 job.run_snippy_core()
 logger.info("STEP 3: Filtering Ns from genome alignment...\n")
 job.Ns2gaps()
 logger.info("STEP 4: Predicting and filtering recombination events from genome alignment...\n")
 job.filter_recombinant_positions()
-logger.info("STEP 5: Generating recombination event figure...\n")
-job.visualise_recombination_predictions()
 if args.tree_builder == 'raxml':
-	logger.info("STEP 6: Building maximum likelihood phylogenetic tree...\n")
+	logger.info("STEP 5: Building maximum likelihood phylogenetic tree...\n")
 	job.gen_bootstrap_tree()
 	job.gen_final_tree()
-	logger.info("STEP 7: Performing pairwise core SNP counts...\n")
-else:
 	logger.info("STEP 6: Performing pairwise core SNP counts...\n")
+else:
+	logger.info("STEP 5: Performing pairwise core SNP counts...\n")
 job.count_core_snps()
 logger.info("Job complete, thanks for using snpiphy.")
