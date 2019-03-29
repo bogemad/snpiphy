@@ -6,7 +6,7 @@ def read(fname):
 
 setup(
     name = "snpiphy",
-    version = "0.3",
+    version = "0.4",
     author = "Daniel Bogema",
     author_email = "daniel.bogema@dpi.nsw.gov.au",
     description = ("An automated snp phylogeny pipeline"),
@@ -14,7 +14,7 @@ setup(
     keywords = "genomics phylogenetics snp",
     url = "https://github.com/bogemad/snpiphy",
     packages=['snpiphy'],
-    scripts=['bin/snpiphy'],
+    scripts=['bin/snpiphy', 'bin/snpiphy_generate_input_list'],
     install_requires=['biopython>=1.71','bcbio-gff>=0.6.4', 'pandas>=0.23.0', 'numpy>=1.14.3'],
     long_description=read('README.md'),
 )
