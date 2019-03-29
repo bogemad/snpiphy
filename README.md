@@ -36,17 +36,13 @@ python setup.py install
 ### Usage
 
 ```
-usage: snpiphy [-h] -q READS_DIR -o OUTDIR -r REFERENCE [-c CUTOFF]
-               [-p PREFIX] [-t THREADS] [-j] [-s] [-m] [-b {raxml,fasttree}]
-               [-f] [--version] [-v]
-
+usage: snpiphy [-h] -o OUTDIR -r REFERENCE [-q READS_DIR] [-l READS_LIST]
+               [-c CUTOFF] [-p PREFIX] [-t THREADS] [-j] [-s] [-m]
+               [-b {raxml,fasttree}] [-f] [--version] [-v]
 
 snpiphy - An automated snp phylogeny pipeline.
 
 required arguments:
-  -q READS_DIR, --fastq-dir READS_DIR
-                        Path to a directory with your interleaved fastq
-                        sequencing reads or fasta assemblies.
   -o OUTDIR, --output-directory OUTDIR
                         Path to the output directory. A directory will be
                         created if one does not exist.
@@ -54,9 +50,22 @@ required arguments:
                         Path to the reference sequence. Only fasta format is
                         accepted currently.
 
+input arguments - required, provide only one:
+  -q READS_DIR, --input_dir READS_DIR
+                        Path to a directory with your interleaved fastq
+                        sequencing reads, single-end sequencing reads (use
+                        with the -s option) or fasta assemblies.
+  -l READS_LIST, --input_list READS_LIST
+                        Path to a tab-separated file containing read paths and
+                        paired status. Best used when running a combination of
+                        single-end and paired-end data or if your data is
+                        spread across multiple directories. Run
+                        'snpiphy_generate_input_list' to generate an example
+                        list.
+
 optional arguments:
   -h, --help            show this help message and exit
-  -c CUTOFF, --cov-cutoff CUTOFF
+  -c CUTOFF, --cov_cutoff CUTOFF
                         Percent coverage of reference sequence (0-100%) used
                         to reject a sample. Samples lower than this threshold
                         will be excluded from phylogenetic pipeline steps.
