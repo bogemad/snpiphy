@@ -1,0 +1,12 @@
+#!/usr/bin/env python
+
+with open("sequence_list.txt", 'w') as outfile:
+	outfile.write("""#This is a sequence list for the snpiphy pipeline
+#Lines starting with # will be ignored by snpiphy.
+#Enter paths to your sequence files and denote if they are paired (P), single-end (S) or fasta assemblies (A) as in the example below. Separate filepath and pairing by a tab character.
+#Example list:
+#/path/to/your/paired-sequence-reads.fastq	P
+#/path/to/your/single-end-sequence-reads	S
+#/path/to/your/assembly.fasta	A
+"""
+	)
