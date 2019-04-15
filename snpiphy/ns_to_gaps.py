@@ -7,11 +7,11 @@ logger = logging.getLogger(__name__)
 
 def replace_Ns_with_gaps(outdir, threads):
 	logger.info("Importing core alignment...")
-	aln = AlignIO.read(os.path.join(outdir, "core.full.aln"),"fasta")
+	aln = AlignIO.read(os.path.join(outdir, "core.aln"),"fasta")
 	logger.info("Filtering Ns...")
 	array = filter_gaps_Ns(aln, int(threads))
 	logger.info("Finished cleaning. Exporting to file...")
-	AlignIO.write(reconstruct_alignment(aln, array), os.path.join(outdir, "core.full.trimmed.aln"), "fasta")
+	AlignIO.write(reconstruct_alignment(aln, array), os.path.join(outdir, "core.trimmed.aln"), "fasta")
 	logger.info("Done.")
 
 def filter_gaps_Ns(aln, threads):
