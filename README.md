@@ -38,7 +38,7 @@ python setup.py install
 ```
 usage: snpiphy [-h] -o OUTDIR -r REFERENCE [-q READS_DIR] [-l READS_LIST]
                [-c CUTOFF] [-p PREFIX] [-t THREADS] [-j] [-s] [-m]
-               [-b {raxml,fasttree}] [-f] [--version] [-v]
+               [-b {raxml,fasttree}] [-f] [-n] [--version] [-v]
 
 snpiphy - An automated snp phylogeny pipeline.
 
@@ -85,6 +85,10 @@ optional arguments:
                         Algorithm used for building the phylogenetic tree
                         (default: raxml)
   -f, --force           Overwrite files in the output directories.
+  -n, --no_recombination_filter
+                        Don't filter potential recombination events. Use for
+                        organisms that are known undergo low amounts of
+                        recombination.
   --version             show program's version number and exit
   -v, --verbose         Increase verbosity on command line output (n.b.
                         verbose output is always saved to snpiphy.log in the
